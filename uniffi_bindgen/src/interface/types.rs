@@ -71,7 +71,7 @@ pub enum FFIType {
 /// Represents all the different high-level types that can be used in a component interface.
 /// At this level we identify user-defined types by name, without knowing any details
 /// of their internal structure apart from what type of thing they are (record, enum, etc).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Type {
     // Primitive types.
     UInt8,
@@ -129,6 +129,80 @@ impl From<&Type> for FFIType {
                 FFIType::RustBuffer
             }
         }
+    }
+}
+
+impl Type {
+    /// Get the canonical, unique-within-this-component name for a type.
+    ///
+    /// When generating helper code for foreign language bindings, it's sometimes useful to be
+    /// able to name a particular type in order to e.g. call a helper function that is specific
+    /// to that type. We support this by defining a naming convention where each type gets a
+    /// unique canonical name, constructed recursively from the names of its component types (if any).
+    pub fn canonical_name(&self) -> String {
+        match self {
+            // Builtin primitive types, with plain old names.
+            Type::Int8 => "i8".into(),
+            Type::UInt8 => "u8".into(),
+            Type::Int16 => "i16".into(),
+            Type::UInt16 => "u16".into(),
+            Type::Int32 => "i32".into(),
+            Type::UInt32 => "u32".into(),
+            Type::Int64 => "i64".into(),
+            Type::UInt64 => "u64".into(),
+            Type::Float32 => "f32".into(),
+            Type::Float64 => "f64".into(),
+            Type::String => "string".into(),
+            Type::Boolean => "bool".into(),
+            // API defined types.
+            // Note that these all get unique names, and the parser ensures that the names do not
+            // conflict with a builtin type. We add a prefix to the name to guard against pathological
+            // cases like a record named `SequenceRecord` interfering with `sequence<Record>`
+            Type::Object(nm) => format!("Object{}", nm),
+            Type::Error(nm) => format!("Error{}", nm),
+            Type::Enum(nm) => format!("Enum{}", nm),
+            Type::Record(nm) => format!("Record{}", nm),
+            // Recursive types.
+            // These add a prefix to the name of the underlying type.
+            // The component API definition cannot give names to recursive types, so as long as the
+            // prefixes we add here are all unique amongst themselves, then we have no chance of
+            // acccidentally generating name collisions.
+            Type::Optional(t) => format!("Optional{}", t.canonical_name()),
+            Type::Sequence(t) => format!("Sequence{}", t.canonical_name()),
+            Type::Map(t) => format!("Map{}", t.canonical_name()),
+        }
+    }
+
+    /// Iterator over all the types contained in this type.
+    ///
+    /// Primitive types just yield themselves, but structurally-recursive types also yield
+    /// their inner type, and its inner type, and so-on.
+    ///
+    /// This returns a boxed iterator because I don't want to give it an explicit type
+    /// and I do want to recurse, ref https://fasterthanli.me/articles/recursive-iterators-rust
+    pub fn iter_types(&self) -> Box<dyn Iterator<Item = &Type> + '_> {
+        // The fiddly use of chained `Option` iterators here is so we can produce a consistent
+        // return type across the various match arms.
+        Box::new(
+            std::iter::once(self)
+                .chain(
+                    match self {
+                        Type::Optional(t) | Type::Sequence(t) | Type::Map(t) => {
+                            Some(t.iter_types())
+                        }
+                        _ => None,
+                    }
+                    .into_iter()
+                    .flatten(),
+                )
+                .chain(
+                    match self {
+                        Type::Map(_) => Some(&Type::String),
+                        _ => None,
+                    }
+                    .into_iter(),
+                ),
+        )
     }
 }
 

@@ -18,7 +18,7 @@ _UniFFILib.{{ func.ffi_func().name() }}({% call _arg_list_ffi_call(func) -%})
 {%- when Some with (e) -%}
 rust_call_with_error({{ e|class_name_py }},_UniFFILib.{{ func.ffi_func().name() }},{{- prefix }}{% if func.arguments().len() > 0 %},{% endif %}{% call _arg_list_ffi_call(func) %}))
 {%- else -%}
-_UniFFILib.{{ func.ffi_func().name() }}({{- prefix }}{% if func.arguments().len() > 0 %},{% endif %}{% call _arg_list_ffi_call(func) %}))
+_UniFFILib.{{ func.ffi_func().name() }}({{- prefix }}{% if func.arguments().len() > 0 %},{% endif %}{% call _arg_list_ffi_call(func) %})
 {%- endmatch -%}
 {%- endmacro -%}
 
@@ -54,12 +54,12 @@ _UniFFILib.{{ func.ffi_func().name() }}({{- prefix }}{% if func.arguments().len(
 
 {%- macro coerce_args(func) %}
     {%- for arg in func.arguments() %}
-    {{ arg.name()|coerce_py(arg.type_()) -}}
+    {{ arg.name() }} = {{ arg.name()|coerce_py(arg.type_()) -}}
     {% endfor -%}
 {%- endmacro -%}
 
 {%- macro coerce_args_extra_indent(func) %}
         {%- for arg in func.arguments() %}
-        {{ arg.name()|coerce_py(arg.type_()) }}
+        {{ arg.name() }} = {{ arg.name()|coerce_py(arg.type_()) }}
         {%- endfor %}
 {%- endmacro -%}

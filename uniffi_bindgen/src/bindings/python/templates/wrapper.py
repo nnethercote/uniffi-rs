@@ -20,6 +20,7 @@ import struct
 import contextlib
 
 {% include "RustBufferTemplate.py" %}
+{% include "RustStringTemplate.py" %}
 
 {% include "RustBufferHelper.py" %}
 

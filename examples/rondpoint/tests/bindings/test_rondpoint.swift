@@ -60,7 +60,7 @@ let rt = Retourneur()
 // together, we've shown the correctness of the return leg.
 let st = Stringifier()
 
-// Test the effigacy of the string transport from rust. If this fails, but everything else 
+// Test the efficacy of the string transport from rust. If this fails, but everything else 
 // works, then things are very weird.
 let wellKnown = st.wellKnownString(value: "swift")
 assert("uniffi 💚 swift!" == wellKnown, "wellKnownString 'uniffi 💚 swift!' == '\(wellKnown)'")

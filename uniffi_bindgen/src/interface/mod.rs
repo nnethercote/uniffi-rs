@@ -99,28 +99,110 @@ impl<'ci> ComponentInterface {
         Ok(ci)
     }
 
+    /// The string namespace within which this API should be presented to the caller.
+    ///
+    /// This string would typically be used to prefix function names in the FFI, to build
+    /// a package or module name for the foreign language, etc.
     pub fn namespace(&self) -> &str {
         self.namespace.as_str()
     }
 
+    /// Get every unique type that is used in the interface.
+    ///
+    /// Every component API uses a finite number of types, including primitive types, API-defined
+    /// types like records and enums, and recursive types such as sequences of the above. Our
+    /// component API doesn't support fancy generics so this is a finitely-enumerable set, and
+    /// enumerating it can be useful when generating type helpers in foreign language bindings.
+    pub fn iter_types(&self) -> Vec<Type> {
+        // Walk all the types, uniquifying by name.
+        // We use a `HashMap` and compare by name rather than just a `HashSet` of the types themselves,
+        // because it's a good opportunity to assert that they all actually have a unique name!
+        let mut types_by_name: HashMap<String, Type> = HashMap::new();
+        for type_ in self.iter_types_with_duplicates() {
+            let nm = type_.canonical_name();
+            let entry = types_by_name.entry(nm);
+            match entry {
+                Entry::Vacant(e) => {
+                    e.insert(type_);
+                }
+                Entry::Occupied(e) => {
+                    // Guard against buggy logic in generating type names.
+                    assert!(*e.get() == type_);
+                }
+            }
+        }
+        types_by_name.drain().map(|(_, v)| v).collect()
+    }
+
+    /// List all the type used in the interface, including (probably many!) duplicates.
+    ///
+    /// This is an internal helper method that powers the public-facing `iter_types` method.
+    /// In future we might switch to keeping the set of types in a `HashMap` or similar rather
+    /// than generating it on demand by walking the entire interface, but this will do for now.
+    fn iter_types_with_duplicates(&self) -> impl Iterator<Item = Type> + '_ {
+        self.enums
+            .iter()
+            .map(|e| e.iter_types())
+            .flatten()
+            .chain(self.records.iter().map(|r| r.iter_types()).flatten())
+            .chain(self.functions.iter().map(|f| f.iter_types()).flatten())
+            .chain(self.objects.iter().map(|o| o.iter_types()).flatten())
+            .chain(self.errors.iter().map(|e| e.iter_types()).flatten())
+    }
+
+    /// List the definitions for every Enum type in the interface.
     pub fn iter_enum_definitions(&self) -> Vec<Enum> {
         self.enums.to_vec()
     }
 
+    /// Get an Enum definition by name, or None if no such Enum is defined.
+    pub fn get_enum_definition(&self, name: &str) -> Option<&Enum> {
+        // TODO: probably we could store these internally in a HashMap to make this easier?
+        self.enums.iter().find(|e| e.name == name)
+    }
+
+    /// List the definitions for every Record type in the interface.
     pub fn iter_record_definitions(&self) -> Vec<Record> {
         self.records.to_vec()
     }
 
+    /// Get a Record definition by name, or None if no such Record is defined.
+    pub fn get_record_definition(&self, name: &str) -> Option<&Record> {
+        // TODO: probably we could store these internally in a HashMap to make this easier?
+        self.records.iter().find(|r| r.name == name)
+    }
+
+    /// List the definitions for every Function in the interface.
     pub fn iter_function_definitions(&self) -> Vec<Function> {
         self.functions.to_vec()
     }
 
+    /// Get a Function definition by name, or None if no such Function is defined.
+    pub fn get_function_definition(&self, name: &str) -> Option<&Function> {
+        // TODO: probably we could store these internally in a HashMap to make this easier?
+        self.functions.iter().find(|f| f.name == name)
+    }
+
+    /// List the definitions for every Object type in the interface.
     pub fn iter_object_definitions(&self) -> Vec<Object> {
         self.objects.to_vec()
     }
 
+    /// Get an Object definition by name, or None if no such Object is defined.
+    pub fn get_object_definition(&self, name: &str) -> Option<&Object> {
+        // TODO: probably we could store these internally in a HashMap to make this easier?
+        self.objects.iter().find(|o| o.name == name)
+    }
+
+    /// List the definitions for every Error type in the interface.
     pub fn iter_error_definitions(&self) -> Vec<Error> {
         self.errors.to_vec()
+    }
+
+    /// Get an Error definition by name, or None if no such Error is defined.
+    pub fn get_error_definition(&self, name: &str) -> Option<&Error> {
+        // TODO: probably we could store these internally in a HashMap to make this easier?
+        self.errors.iter().find(|e| e.name == name)
     }
 
     /// Builtin FFI function for allocating a new `RustBuffer`.
@@ -184,6 +266,9 @@ impl<'ci> ComponentInterface {
         }
     }
 
+    /// List the definitions of all FFI functions in the interface.
+    ///
+    /// The set of FFI functions is derived automatically from the set of higher-level types.
     pub fn iter_ffi_function_definitions(&self) -> Vec<FFIFunction> {
         self.objects
             .iter()
@@ -272,6 +357,10 @@ impl<'ci> ComponentInterface {
         Ok(())
     }
 
+    /// Automatically derive the low-level FFI functions from the high-level types in the interface.
+    ///
+    /// This should only be called after the high-level types have been completed defined, otherwise
+    /// the resulting set will be missing some entries.
     fn derive_ffi_funcs(&mut self) -> Result<()> {
         let ci_prefix = self.namespace().to_string();
         for func in self.functions.iter_mut() {
@@ -284,6 +373,7 @@ impl<'ci> ComponentInterface {
     }
 }
 
+/// Convenience implementation for parsing a `ComponentInterface` from a string.
 impl FromStr for ComponentInterface {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
@@ -432,6 +522,20 @@ impl Function {
         self.ffi_func.has_out_err = self.throws().is_some();
         Ok(())
     }
+
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        self.arguments
+            .iter()
+            .flat_map(|a| a.type_.iter_types())
+            .cloned()
+            .chain(
+                self.return_type
+                    .iter()
+                    .flat_map(|t| t.iter_types())
+                    .cloned(),
+            )
+            .chain(self.throws().map(|nm| Type::Error(nm.to_string())))
+    }
 }
 
 impl APIConverter<Function> for weedle::namespace::NamespaceMember<'_> {
@@ -545,6 +649,9 @@ impl Enum {
     pub fn variants(&self) -> Vec<&str> {
         self.variants.iter().map(|v| v.as_str()).collect()
     }
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        std::iter::once(Type::Enum(self.name.clone()))
+    }
 }
 
 impl APIConverter<Enum> for weedle::EnumDefinition<'_> {
@@ -627,6 +734,12 @@ impl Object {
         }
         Ok(())
     }
+
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        std::iter::once(Type::Object(self.name.clone()))
+            .chain(self.constructors.iter().map(|c| c.iter_types()).flatten())
+            .chain(self.methods.iter().map(|m| m.iter_types()).flatten())
+    }
 }
 
 impl APIConverter<Object> for weedle::InterfaceDefinition<'_> {
@@ -699,6 +812,13 @@ impl Constructor {
         // but it's this way until we implement handling for panics
         self.ffi_func.has_out_err = self.throws().is_some();
         Ok(())
+    }
+
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        self.arguments
+            .iter()
+            .flat_map(|a| a.type_.iter_types())
+            .cloned()
     }
 }
 
@@ -789,6 +909,20 @@ impl Method {
         self.ffi_func.has_out_err = self.throws().is_some();
         Ok(())
     }
+
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        self.arguments
+            .iter()
+            .flat_map(|a| a.type_.iter_types())
+            .cloned()
+            .chain(
+                self.return_type
+                    .iter()
+                    .flat_map(|t| t.iter_types())
+                    .cloned(),
+            )
+            .chain(self.throws().map(|nm| Type::Error(nm.to_string())))
+    }
 }
 
 impl APIConverter<Method> for weedle::interface::OperationInterfaceMember<'_> {
@@ -842,6 +976,10 @@ impl Error {
     pub fn values(&self) -> Vec<&str> {
         self.values.iter().map(|v| v.as_str()).collect()
     }
+
+    fn iter_types(&self) -> impl Iterator<Item = Type> {
+        std::iter::once(Type::Error(self.name.clone()))
+    }
 }
 
 impl APIConverter<Error> for weedle::EnumDefinition<'_> {
@@ -876,6 +1014,14 @@ impl Record {
     }
     pub fn fields(&self) -> Vec<&Field> {
         self.fields.iter().collect()
+    }
+    fn iter_types(&self) -> impl Iterator<Item = Type> + '_ {
+        std::iter::once(Type::Record(self.name.clone())).chain(
+            self.fields
+                .iter()
+                .flat_map(|f| f.type_.iter_types())
+                .cloned(),
+        )
     }
 }
 

@@ -77,7 +77,7 @@ fun <T> List<T>.affirmEnchaine(
     }
 }
 
-// Test the effigacy of the string transport from rust. If this fails, but everything else 
+// Test the efficacy of the string transport from rust. If this fails, but everything else 
 // works, then things are very weird.
 val wellKnown = st.wellKnownString("kotlin")
 assert("uniffi 💚 kotlin!" == wellKnown) { "wellKnownString 'uniffi 💚 kotlin!' == '$wellKnown'" }
