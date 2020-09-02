@@ -67,7 +67,4 @@ workflows:
       - Rust and Foreign Language tests
   deploy-website:
     jobs:
-      - Deploy website:
-          filters:
-            branches:
-              only: main
+      - Deploy website
